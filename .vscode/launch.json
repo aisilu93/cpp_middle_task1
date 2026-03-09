@@ -10,9 +10,7 @@
             "name": "Launch Debug app",
             "program": "${workspaceFolder}/build/CryptoGuard",
             "args": [
-                "--command","encrypt",
-                "--password", "12345",
-                "--input", "input.txt",
+                "--command","checksum"
             ],
             "cwd": "${workspaceFolder}/build",
             "preLaunchTask": "GCC: Build Debug",

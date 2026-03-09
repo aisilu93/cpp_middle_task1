@@ -3,7 +3,6 @@
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <iostream>
-#include <print>
 
 namespace po=boost::program_options;
 
@@ -58,7 +57,7 @@ void ProgramOptions::Parse(int argc, char *argv[]) {
         if(!error.empty()) throw po::error(error);
     }
     catch(po::error const &e) {
-        std::print("{}",e.what());
+        std::cout<<e.what();
     }
 }
 
