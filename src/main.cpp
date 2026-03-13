@@ -27,11 +27,11 @@ int main(int argc, char *argv[]) {
             break;
 
         case COMMAND_TYPE::CHECKSUM:
-            std::print("Checksum: {}\n", "CHECKSUM_NOT_IMPLEMENTED");
+            std::print("Checksum: {}\n",cryptoCtx.CalculateChecksum(input));
             break;
 
         default:
-            throw std::runtime_error{"Unsupported command"};
+            throw std::runtime_error{"Unsupported command\n"};
         }
 
     } catch (const std::exception &e) {

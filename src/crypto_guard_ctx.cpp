@@ -1,8 +1,13 @@
 #include "crypto_guard_ctx.h"
+#include <openssl/evp.h>
+#include <openssl/err.h>
 #include <array>
 #include <iostream>
+#include <stdexcept>
 #include <vector>
 #include <print>
+#include <sstream>
+#include <iomanip>
 
 namespace CryptoGuard {
 
@@ -30,40 +35,107 @@ public:
         DoCrypt(false,inStream,outStream,password);    
     }
 
-    std::string CalculateChecksum(std::istream &inStream) { return "Not implemented";}
+    std::string CalculateChecksum(std::istream &inStream) {
+        if(!inStream) return "";
+        std::stringstream res;
+        unsigned char md_value[EVP_MAX_MD_SIZE];
+        unsigned int md_len,i;
+        auto d=[](EVP_MD_CTX *ptr){ EVP_MD_CTX_free(ptr); };
+        try {
+            std::unique_ptr<EVP_MD_CTX,decltype(d)> ctx(EVP_MD_CTX_new(),d);
+            if(!ctx.get()) {
+                throw std::runtime_error("Message digest create failed.\n");
+            }
+            const EVP_MD *md=EVP_get_digestbyname("SHA256");
+            if(!md) {
+                throw std::runtime_error("Unknown message digest.\n");
+            }
+            if(!EVP_DigestInit_ex2(ctx.get(),md,NULL)) {
+                throw std::runtime_error("Message digest initialization failed.\n");
+            }
+            std::vector<unsigned char> inBuf(16);
+            std::vector<char> input(16);
+            int len=0;
+            for(;;) {
+                inStream.read(&input[0],16);
+                len=static_cast<int>(inStream.gcount());
+                if(len<=0) break;
+                std::copy(input.begin(), std::next(input.begin(), 16), inBuf.begin());
+                if(!EVP_DigestUpdate(ctx.get(),&input[0],len)) {
+                    throw std::runtime_error("Message digest update failed.\n");
+                }
+            }
+            if(!EVP_DigestFinal_ex(ctx.get(),md_value,&md_len)) {
+                throw std::runtime_error("Message digest finalization failed.\n");
+            }
+            for(i=0;i<md_len;i++) {
+                res<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<int>(md_value[i]);
+            }
+        }
+        catch(std::runtime_error e) {
+            PrintRuntimeErrors(e);
+        }
+        return(res.str());
+    }
 
     void DoCrypt(bool encrypt,std::istream &inStream, std::ostream &outStream, std::string_view password){
         auto params = CreateChiperParamsFromPassword(password);
         params.encrypt = encrypt?1:0;
         auto d=[](EVP_CIPHER_CTX *ptr){EVP_CIPHER_CTX_free(ptr);};
-        std::unique_ptr<EVP_CIPHER_CTX,decltype(d)> ctx(EVP_CIPHER_CTX_new(),d);
-        // Инициализируем cipher
-        EVP_CipherInit_ex(ctx.get(), params.cipher, nullptr, params.key.data(), params.iv.data(), params.encrypt);
+        try {
+            std::unique_ptr<EVP_CIPHER_CTX,decltype(d)> ctx(EVP_CIPHER_CTX_new(),d);
+            if(!ctx.get()) {
+                throw std::runtime_error("Cipher context create failed.\n");
+            }
+            // Инициализируем cipher
+            if(EVP_CipherInit_ex(ctx.get(), params.cipher, nullptr,
+                            params.key.data(), params.iv.data(), params.encrypt)!=1) {
+                throw std::runtime_error("Cipher init failed.\n");
+            }
 
-        std::vector<unsigned char> outBuf(16 + EVP_MAX_BLOCK_LENGTH);
-        std::vector<unsigned char> inBuf(16);
-        std::vector<char> input(16);
-        std::string output;
-        int outLen=0;
+            std::vector<unsigned char> outBuf(16 + EVP_MAX_BLOCK_LENGTH);
+            std::vector<unsigned char> inBuf(16);
+            std::vector<char> input(16);
+            std::string output;
+            int outLen=0;
 
-        for(;;) {
-            inStream.read(&input[0],16);
-            outLen=static_cast<int>(inStream.gcount());
-            if(outLen<=0) break;
-            std::copy(input.begin(), std::next(input.begin(), 16), inBuf.begin());
-            EVP_CipherUpdate(ctx.get(),outBuf.data(), &outLen, inBuf.data(), static_cast<int>(16));
+            for(;;) {
+                inStream.read(&input[0],16);
+                outLen=static_cast<int>(inStream.gcount());
+                if(outLen<=0) break;
+                std::copy(input.begin(), std::next(input.begin(), 16), inBuf.begin());
+                if(EVP_CipherUpdate(ctx.get(),outBuf.data(), &outLen, 
+                                inBuf.data(), static_cast<int>(16))!=1) {
+                    throw std::runtime_error("Cipher update failed.\n");
+                }
+                for (int i = 0; i < outLen; ++i) {
+                    output.push_back(outBuf[i]);
+                }
+            }
+
+            // Заканчиваем работу с cipher
+            if(EVP_CipherFinal_ex(ctx.get(), outBuf.data(), &outLen)!=1) {
+                throw std::runtime_error("Cipher finalize filed.\n");
+            }
             for (int i = 0; i < outLen; ++i) {
                 output.push_back(outBuf[i]);
             }
+            std::print("String {} successfully. Result: '{}'\n\n", params.encrypt==1?"encrypted":"decrypted",output);
+            outStream.write(&output[0],output.size());
         }
+        catch(std::runtime_error &e) {
+            PrintRuntimeErrors(e);
+        }
+    }
 
-        // Заканчиваем работу с cipher
-        EVP_CipherFinal_ex(ctx.get(), outBuf.data(), &outLen);
-        for (int i = 0; i < outLen; ++i) {
-            output.push_back(outBuf[i]);
+    void PrintRuntimeErrors(std::runtime_error &e) {
+        std::print("{}",e.what());
+        int errcode=ERR_get_error();
+        char errstr[256]={0};
+        while(errcode!=0) {
+            std::print("OpenSSL error: {}",ERR_error_string(errcode, errstr));
+            errcode=ERR_get_error();
         }
-        std::print("String {} successfully. Result: '{}'\n\n", params.encrypt==1?"encrypted":"decrypted",output);
-        outStream.write(&output[0],output.size());
     }
 
     AesCipherParams CreateChiperParamsFromPassword(std::string_view password) {
