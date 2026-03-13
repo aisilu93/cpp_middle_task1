@@ -103,9 +103,9 @@ public:
                 inStream.read(&input[0],16);
                 outLen=static_cast<int>(inStream.gcount());
                 if(outLen<=0) break;
-                std::copy(input.begin(), std::next(input.begin(), 16), inBuf.begin());
+                std::copy(input.begin(), std::next(input.begin(), outLen), inBuf.begin());
                 if(EVP_CipherUpdate(ctx.get(),outBuf.data(), &outLen, 
-                                inBuf.data(), static_cast<int>(16))!=1) {
+                                inBuf.data(), static_cast<int>(outLen))!=1) {
                     throw std::runtime_error("Cipher update failed.\n");
                 }
                 for (int i = 0; i < outLen; ++i) {
@@ -115,7 +115,7 @@ public:
 
             // Заканчиваем работу с cipher
             if(EVP_CipherFinal_ex(ctx.get(), outBuf.data(), &outLen)!=1) {
-                throw std::runtime_error("Cipher finalize filed.\n");
+                throw std::runtime_error("Cipher finalize failed.\n");
             }
             for (int i = 0; i < outLen; ++i) {
                 output.push_back(outBuf[i]);
